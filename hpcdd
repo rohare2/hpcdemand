@@ -1,0 +1,220 @@
+#!/usr/bin/perl
+# $Id: $
+# $Date: $
+# hpcdd
+# Hight Performance Computer Demand Daemon
+#
+use strict;
+use warnings;
+use IO::Socket::INET;
+use Date::Manip qw(Delta_Format DateCalc UnixDate);
+use Proc::Daemon;
+ 
+my $debug = 1;		# change to 1 to enable debugging
+my $daemonize = 0;	# change to 0 to debug in non-daemon mode
+
+my $pidFile = "/var/run/hpcdd.pid";
+my $daemon = Proc::Daemon->new(
+	pid_file => $pidFile,
+	work_dir => '/var/tmp/',
+);
+# are you running? Return 0 if not.
+my $pid = $daemon->Status($pidFile);
+if ($pid) {
+	die "Already running with pid $pid\n";
+}
+
+
+if ($daemonize) {
+	$daemon->Init;
+}
+
+# auto-flush on socket
+$| = 1;
+
+# validate demand file
+my $demand_file = '/var/lib/hpcd.db';
+if (-f "$demand_file") {
+	chmod 0600, $demand_file;
+} else {
+	open(FILE, "> $demand_file") or die "can't create demand file";
+	close FILE;
+	chmod 0600, $demand_file;
+}
+
+my $itemNo = 1;
+my @records;
+&buildRecordArray($demand_file);
+
+# creating a listening socket
+my $socket = new IO::Socket::INET (
+	LocalHost => '0.0.0.0',
+	LocalPort => '7777',
+	Proto => 'tcp',
+	Listen => 5,
+	Reuse => 1
+   );
+	die "cannot create socket $!\n" unless $socket;
+	print "server waiting for client connection on port 7777\n";
+	
+while(1)
+{
+	# waiting for a new client connection
+	my $client_socket = $socket->accept();
+
+	# get information about a newly connected client
+	my $client_address = $client_socket->peerhost();
+	my $client_port = $client_socket->peerport();
+	$debug && print "connection from $client_address:$client_port\n";
+
+	# read up to 1024 characters from the connected client
+	my $data = "";
+	$client_socket->recv($data, 1024);
+	$debug && print "received data: $data\n";
+	my %hash = split /[;:]/,$data;
+
+	# list mode
+	if ($hash{'mode'} eq 'list') {
+		# print header
+		my $data = "ITEMNO  START       END         CPUS  USERNAME      Description\n";
+		$client_socket->send($data);
+		$data =    "======  ==========  ==========  ====  ============  =========================\n";
+		$client_socket->send($data);
+
+		# determine current date
+		my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
+		$mon += 1;
+		$year += 1900;
+		my $today = sprintf("%04d%02d%02d\n", $year,$mon,$mday);
+
+		# print records
+		my @sorted = sort {$a->{start} <=> $b->{start} } @records;
+		foreach my $record (@sorted) {
+			if ($record->{end} > $today) {
+				my ($y,$m,$d) = UnixDate($record->{'start'}, "%Y", "%m", "%d");
+				my $start = sprintf("%02d\/%02d\/%04d", $m, $d, $y);
+				($y,$m,$d) = UnixDate($record->{'end'}, "%Y", "%m", "%d");
+				my $end = sprintf("%02d\/%02d\/%04d", $m,$d,$y);
+				my $rec = sprintf("%6d  %8s  %8s  %4d  %-12s  %-25s\n",
+					$record->{itemNo},$start,$end,$record->{cpus},$record->{user},$record->{desc});
+
+				if ($hash{'user'} eq 'ALL') {
+					$debug && print "$rec";
+					$client_socket->send($rec);
+				} elsif ($hash{'user'} eq $record->{user}) {
+					$debug && print "$rec";
+					$client_socket->send($rec);
+				}
+			}
+		}
+
+		# End of request
+		$data = "END_OF_REQUEST";
+		$client_socket->send($data);
+	}
+
+	if ($hash{'mode'} eq 'summary') {
+		# print header
+		my $data = "START       CPUS\n";
+		$client_socket->send($data);
+		$data =    "==========  ====\n";
+		$client_socket->send($data);
+
+		# determine current date
+		my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
+		$mon += 1;
+		$year += 1900;
+		my $today = sprintf("%04d%02d%02d\n", $year,$mon,$mday);
+
+		# print records
+		my $load = 0;
+		my @sorted = sort {$a->{start} <=> $b->{start} } @records;
+		foreach my $record (@sorted) {
+			my ($y,$m,$d) = UnixDate($record->{'start'}, "%Y", "%m", "%d");
+			my $start = sprintf("%02d\/%02d\/%04d", $m, $d, $y);
+
+			if ($record->{start} ge $today) {  # add cpu usage
+				$load = $load + $record->{cpus};
+				
+				if ($record->{end} lt $today) {  # delete past cpu usage
+					$load = $load - $record->{cpus};
+				}
+
+				my $rec = sprintf("%8s  %4d\n", $start, $load); 
+				$debug && print "$rec";
+				$client_socket->send($rec);
+			}
+		}
+
+		# End of request
+		$data = "END_OF_REQUEST";
+		$client_socket->send($data);
+	}
+
+	# add mode
+	if ($hash{'mode'} eq 'add') {
+		my $rec = {};
+		$rec->{'itemNo'} = $itemNo;
+		$rec->{'start'} = $hash{'start'};
+		$rec->{'end'} = $hash{'end'};
+		$rec->{'cpus'} = $hash{'cpus'};
+		$rec->{'user'} = $hash{'user'};
+		$rec->{'desc'} = $hash{'desc'};
+		push @records, $rec;
+		++$itemNo;
+
+		&updateDB();
+	}
+
+	# delete mode
+	if ($hash{'mode'} eq 'delete') {
+		my @tmp;
+		foreach my $record (@records) {
+			if ($record->{itemNo} eq $hash{'itemNo'}) {
+				next;
+			} else {
+				push @tmp, $record;
+			}
+		}
+		@records = @tmp;
+		
+		&updateDB();
+	}
+
+	# notify client that response has been sent
+	shutdown($client_socket, 1);
+}
+
+sub buildRecordArray() {
+	my $demand_file = shift;
+	open(FILE, "< $demand_file") || die "No records file\n";
+	while (<FILE>) {
+		my $rec = {};
+		my ($start,$end,$cpus,$user,$desc) = split(':', $_, 5);
+		chomp $desc;
+		$rec->{'itemNo'} = $itemNo; 	
+		$rec->{'start'} = $start; 	
+		$rec->{'end'} = $end; 	
+		$rec->{'cpus'} = $cpus; 	
+		$rec->{'user'} = $user; 	
+		$rec->{'desc'} = $desc; 	
+		push @records, $rec ;
+		++$itemNo;
+	}
+	close FILE;
+}
+
+sub updateDB() {
+	# update db file
+	$debug && print "updating db\n";
+	open (DB, "> $demand_file");
+	foreach my $record (@records) {
+		my $data = sprintf("%s:%s:%s:%s:%s",
+			$record->{start},$record->{end},$record->{cpus},$record->{user},$record->{desc});
+		print DB "$data\n";
+	}
+	close DB;
+}
+
+$socket->close();
+

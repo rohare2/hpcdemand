@@ -1,0 +1,155 @@
+#!/usr/bin/perl
+# $Id: $
+# $Date: $
+# hpcd
+#
+# High Performance Computer Demand Client
+#
+use strict;
+use warnings;
+use IO::Socket::INET;
+use Date::Manip qw(ParseDate UnixDate);
+use Getopt::Std;
+
+# auto-flush on socket
+$| = 1;
+
+# set to 1 for debug mode
+my $debug = 0;
+
+# Identify user
+my $username = getpwuid ($<);
+
+# Command line arguments
+our ($opt_a, $opt_c, $opt_d, $opt_h, $opt_l, $opt_u);
+getopts("acd:hlu:");
+$opt_h && &usage();
+$opt_l && ($opt_a || $opt_c || $opt_d || $opt_u) && &usage;
+$opt_c && ($opt_a || $opt_d || $opt_l || $opt_u) && &usage;
+$opt_d && ($opt_a || $opt_c || $opt_l || $opt_u) && &usage;
+$opt_l && ($opt_a || $opt_c || $opt_d || $opt_u) && &usage;
+$opt_u && ($opt_a || $opt_c || $opt_d || $opt_l) && &usage;
+
+sub usage() {
+	print "Usage: hpcd [-l]\n";
+	print "       hpcd -u <uername>\n";
+	print "       hpcd -d <itemNo>\n";
+	print "       hpcd -c\n";
+	print "       hpcd -h\n";
+	print "       a  New CPU demand reservation\n";
+	print "       c  CPU demand summary\n";
+	print "       d  Delete CPU demand itemNo\n";
+	print "       h  Print this help messages\n";
+	print "       l  List records for all users\n";
+	print "       u  List demand for specific user\n";
+	exit;
+}
+
+# who's records to list
+my $user = $username;
+if ( $opt_l ) {
+	$user = 'ALL';
+} elsif ( $opt_u ) {
+	$user = $opt_u;
+}
+
+# create a connecting socket
+my $socket = new IO::Socket::INET (
+	PeerHost => '0.0.0.0',
+	PeerPort => '7777',
+	Proto => 'tcp',
+);
+die "cannot connect to the server $!\n" unless $socket;
+$debug && print "connected to the server\n";
+
+if ( $opt_a ) {
+	# Add record
+	&addRecord();
+} elsif ( $opt_c ) {
+	# Display CPU summary
+	&cpuSummary();
+} elsif ( $opt_d ) {
+	# Delete record
+	&deleteRecord();
+} else {
+	# List records (default)
+	&listRecords();
+}
+
+my $req;
+
+sub addRecord() {
+	print "Start Date? ";
+	my $x = time();
+	my $start;
+	while (<>) {
+		 my $date = ParseDate($_);
+		print "ooops - don't understand!\n" if not $date;
+		next if not $date;
+		my ($y,$m,$d)=UnixDate($date, "%Y", "%m", "%d");
+		my ($e)=UnixDate($date, "%s");
+		if ($e < $x) {
+			print "Can't accept $m/$d/$y start date must be in the future\n";
+			next;
+		}
+		$start = sprintf("%04d%02d%02d", $y,$m,$d);
+		last;
+	}
+	print "End Date? ";
+	$x = time();
+	my $end;
+	while (<>) {
+		 my $date = ParseDate($_);
+		print "ooops - don't understand!\n" if not $date;
+		next if not $date;
+		my ($y,$m,$d)=UnixDate($date, "%Y", "%m", "%d");
+		my ($e)=UnixDate($date, "%s");
+		if ($e < $x) {
+			print "Can't accept $m/$d/$y end date must be in the future\n";
+			next;
+		}
+		$end = sprintf("%04d%02d%02d", $y,$m,$d);
+		last;
+	}
+	print "CPUS required [4]: ";
+	chomp (my $cpus = <STDIN>);
+	$cpus = 4 if $cpus eq '';
+	print "Work desctiption: ";
+	chomp (my $desc = <STDIN>);
+
+	# data to send to server
+	$req = "mode:add;user:$username;start:$start;end:$end;cpus:$cpus;desc:$desc";
+}
+
+sub listRecords() {
+	$req = "mode:list;user:$user";
+}
+
+sub deleteRecord() {
+	if ( $opt_d gt 0 ) {
+		$req = "mode:delete;itemNo:$opt_d";
+	} else {
+		print "Invalid itemNo: $opt_d\n";
+		exit;
+	}
+}
+
+sub cpuSummary() {
+	$req = "mode:summary";
+}
+
+# send data to server
+$socket->send($req);
+
+# notify server that request has been sent
+shutdown($socket, 1);
+
+# receive a response of up to 1024 characters from server
+while(my $response = <$socket>) {
+	#$socket->recv($response, 1024);
+	last if $response eq "END_OF_REQUEST";
+	print "$response";
+}
+
+$socket->close();
+
