@@ -76,9 +76,9 @@ while(1)
 	# list mode
 	if ($hash{'mode'} eq 'list') {
 		# print header
-		my $data = "ITEMNO  START       END         CPUS  USERNAME      Description\n";
+		my $data = "ITEMNO  START       END         NODES  TOTAL  USERNAME      Description\n";
 		$client_socket->send($data);
-		$data =    "======  ==========  ==========  ====  ============  =========================\n";
+		$data =    "======  ==========  ==========  =====  =====  ============  =========================\n";
 		$client_socket->send($data);
 
 		# determine current date
@@ -90,59 +90,24 @@ while(1)
 		# print records
 		my @sorted = sort {$a->{start} <=> $b->{start} } @records;
 		foreach my $record (@sorted) {
-			if ($record->{end} > $today) {
+			if ($record->{end} >= $today) {
 				my ($y,$m,$d) = UnixDate($record->{'start'}, "%Y", "%m", "%d");
 				my $start = sprintf("%02d\/%02d\/%04d", $m, $d, $y);
 				($y,$m,$d) = UnixDate($record->{'end'}, "%Y", "%m", "%d");
 				my $end = sprintf("%02d\/%02d\/%04d", $m,$d,$y);
-				my $rec = sprintf("%6d  %8s  %8s  %4d  %-12s  %-25s\n",
-					$record->{itemNo},$start,$end,$record->{cpus},$record->{user},$record->{desc});
+				if ($record->{start} >= $hash{from} && $record->{start} <= $hash{to} ) {
+					my $cpu_sum = &calcSum($record->{start});
+					my $rec = sprintf("%6d  %8s  %8s  %5d  %5d  %-12s  %-25s\n",
+						$record->{itemNo},$start,$end,$record->{cpus},$cpu_sum,$record->{user},$record->{desc});
 
-				if ($hash{'user'} eq 'ALL') {
-					$debug && print "$rec";
-					$client_socket->send($rec);
-				} elsif ($hash{'user'} eq $record->{user}) {
-					$debug && print "$rec";
-					$client_socket->send($rec);
+					if ($hash{'user'} eq 'ALL') {
+						$debug && print "$rec";
+						$client_socket->send($rec);
+					} elsif ($hash{'user'} eq $record->{user}) {
+						$debug && print "$rec";
+						$client_socket->send($rec);
+					}
 				}
-			}
-		}
-
-		# End of request
-		$data = "END_OF_REQUEST";
-		$client_socket->send($data);
-	}
-
-	if ($hash{'mode'} eq 'summary') {
-		# print header
-		my $data = "START       CPUS\n";
-		$client_socket->send($data);
-		$data =    "==========  ====\n";
-		$client_socket->send($data);
-
-		# determine current date
-		my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
-		$mon += 1;
-		$year += 1900;
-		my $today = sprintf("%04d%02d%02d\n", $year,$mon,$mday);
-
-		# print records
-		my $load = 0;
-		my @sorted = sort {$a->{start} <=> $b->{start} } @records;
-		foreach my $record (@sorted) {
-			my ($y,$m,$d) = UnixDate($record->{'start'}, "%Y", "%m", "%d");
-			my $start = sprintf("%02d\/%02d\/%04d", $m, $d, $y);
-
-			if ($record->{start} ge $today) {  # add cpu usage
-				$load = $load + $record->{cpus};
-				
-				if ($record->{end} lt $today) {  # delete past cpu usage
-					$load = $load - $record->{cpus};
-				}
-
-				my $rec = sprintf("%8s  %4d\n", $start, $load); 
-				$debug && print "$rec";
-				$client_socket->send($rec);
 			}
 		}
 
@@ -214,6 +179,23 @@ sub updateDB() {
 		print DB "$data\n";
 	}
 	close DB;
+}
+
+sub calcSum() {
+	my $target_date = shift;
+
+	# print records
+	my $cpu_sum = 0;
+	foreach my $r1 (@records) {
+		if ($r1->{start} <= $target_date) {  # add new load 
+			$cpu_sum +=  $r1->{cpus};
+		}
+				
+		if ($r1->{end} < $target_date) {
+				$cpu_sum -= $r1->{cpus};
+		}
+	}
+	return $cpu_sum;
 }
 
 $socket->close();

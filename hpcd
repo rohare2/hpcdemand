@@ -21,27 +21,29 @@ my $debug = 0;
 my $username = getpwuid ($<);
 
 # Command line arguments
-our ($opt_a, $opt_c, $opt_d, $opt_h, $opt_l, $opt_u);
-getopts("acd:hlu:");
+our ($opt_a, $opt_d, $opt_f, $opt_h, $opt_l, $opt_t, $opt_u);
+my $from_date = 0;
+my $to_date = 99999999;
+
+getopts("acd:fhltu:");
 $opt_h && &usage();
-$opt_l && ($opt_a || $opt_c || $opt_d || $opt_u) && &usage;
-$opt_c && ($opt_a || $opt_d || $opt_l || $opt_u) && &usage;
-$opt_d && ($opt_a || $opt_c || $opt_l || $opt_u) && &usage;
-$opt_l && ($opt_a || $opt_c || $opt_d || $opt_u) && &usage;
-$opt_u && ($opt_a || $opt_c || $opt_d || $opt_l) && &usage;
+$opt_l && ($opt_a || $opt_d || $opt_u) && &usage;
+$opt_d && ($opt_a || $opt_u) && &usage;
+$opt_u && ($opt_a) && &usage;
 
 sub usage() {
-	print "Usage: hpcd [-l]\n";
-	print "       hpcd -u <uername>\n";
+	print "Client for reporting anticipated HPC load\n";
+	print "Usage: hpcd [-l|u] [-f <from_date>] [-t <to_date>]\n";
+	print "       hpcd -a\n";
 	print "       hpcd -d <itemNo>\n";
-	print "       hpcd -c\n";
 	print "       hpcd -h\n";
-	print "       a  New CPU demand reservation\n";
-	print "       c  CPU demand summary\n";
-	print "       d  Delete CPU demand itemNo\n";
+	print "       a  Add new CPU demand reservation\n";
+	print "       d  Delete specified item number\n";
+	print "       f  Record display from date\n";
 	print "       h  Print this help messages\n";
-	print "       l  List records for all users\n";
-	print "       u  List demand for specific user\n";
+	print "       l  Long listing, show fall users\n";
+	print "       t  Record display to date\n";
+	print "       u  Include only the specified user\n";
 	exit;
 }
 
@@ -62,12 +64,17 @@ my $socket = new IO::Socket::INET (
 die "cannot connect to the server $!\n" unless $socket;
 $debug && print "connected to the server\n";
 
+if ( $opt_f ) { # Request from date
+	$from_date = &getFromDate();
+}
+
+if ( $opt_t ) { # Request to date
+	$to_date = &getToDate();
+}
+
 if ( $opt_a ) {
 	# Add record
 	&addRecord();
-} elsif ( $opt_c ) {
-	# Display CPU summary
-	&cpuSummary();
 } elsif ( $opt_d ) {
 	# Delete record
 	&deleteRecord();
@@ -96,10 +103,9 @@ sub addRecord() {
 		last;
 	}
 	print "End Date? ";
-	$x = time();
 	my $end;
 	while (<>) {
-		 my $date = ParseDate($_);
+		my $date = ParseDate($_);
 		print "ooops - don't understand!\n" if not $date;
 		next if not $date;
 		my ($y,$m,$d)=UnixDate($date, "%Y", "%m", "%d");
@@ -122,7 +128,7 @@ sub addRecord() {
 }
 
 sub listRecords() {
-	$req = "mode:list;user:$user";
+	$req = "mode:list;user:$user;from:$from_date;to:$to_date";
 }
 
 sub deleteRecord() {
@@ -134,8 +140,44 @@ sub deleteRecord() {
 	}
 }
 
-sub cpuSummary() {
-	$req = "mode:summary";
+sub getFromDate() {
+	print "From date? ";
+	my $x = time();
+	my $from_date;
+	while (<>) {
+		my $date = ParseDate($_);
+		print "ooops - don't understand!\n" if not $date;
+		next if not $date;
+		my ($y,$m,$d)=UnixDate($date, "%Y", "%m", "%d");
+		my ($e)=UnixDate($date, "%s");
+		if ($e < $x) {
+			print "Can't accept $m/$d/$y start date must be in the future\n";
+			next;
+		}
+		$from_date = sprintf("%04d%02d%02d", $y,$m,$d);
+		last;
+	}
+	return $from_date;
+}
+
+sub getToDate() {
+	print "To date? ";
+	my $x = time();
+	my $to_date;
+	while (<>) {
+		my $date = ParseDate($_);
+		print "ooops - don't understand!\n" if not $date;
+		next if not $date;
+		my ($y,$m,$d)=UnixDate($date, "%Y", "%m", "%d");
+		my ($e)=UnixDate($date, "%s");
+		if ($e < $x) {
+			print "Can't accept $m/$d/$y end date must be in the future\n";
+			next;
+		}
+		$to_date = sprintf("%04d%02d%02d", $y,$m,$d);
+		last;
+	}
+	return $to_date;
 }
 
 # send data to server
