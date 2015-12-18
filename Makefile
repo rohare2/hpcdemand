@@ -1,9 +1,9 @@
 #$Id: Makefile 1116 2011-08-25 03:53:15Z rohare $
 #$HeadURL: https://restless/svn/scripts/trunk/Makefile $
 #
-BIN_DIR= /usr/local/bin
+BIN_DIR= /usr/bin
 
-SBIN_DIR= /usr/local/sbin
+SBIN_DIR= /usr/sbin
 
 BIN_FILES= hpcd
 

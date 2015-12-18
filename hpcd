@@ -117,14 +117,14 @@ sub addRecord() {
 		$end = sprintf("%04d%02d%02d", $y,$m,$d);
 		last;
 	}
-	print "CPUS required [4]: ";
-	chomp (my $cpus = <STDIN>);
-	$cpus = 4 if $cpus eq '';
+	print "Nodes required [4]: ";
+	chomp (my $nodes = <STDIN>);
+	$nodes = 4 if $nodes eq '';
 	print "Work desctiption: ";
 	chomp (my $desc = <STDIN>);
 
 	# data to send to server
-	$req = "mode:add;user:$username;start:$start;end:$end;cpus:$cpus;desc:$desc";
+	$req = "mode:add;user:$username;start:$start;end:$end;nodes:$nodes;desc:$desc";
 }
 
 sub listRecords() {
