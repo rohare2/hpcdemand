@@ -21,29 +21,37 @@ my $debug = 0;
 my $username = getpwuid ($<);
 
 # Command line arguments
-our ($opt_a, $opt_d, $opt_f, $opt_h, $opt_l, $opt_t, $opt_u);
+our ($opt_a, $opt_c, $opt_d, $opt_f, $opt_h, $opt_l, $opt_t, $opt_u);
 my $from_date = 0;
 my $to_date = 99999999;
 
-getopts("acd:fhltu:");
+getopts("ac:d:fhltu:");
 $opt_h && &usage();
-$opt_l && ($opt_a || $opt_d || $opt_u) && &usage;
-$opt_d && ($opt_a || $opt_u) && &usage;
-$opt_u && ($opt_a) && &usage;
+$opt_l && ($opt_a || $opt_c || $opt_d || $opt_u) && &usage;
+$opt_d && ($opt_a || $opt_c || $opt_u) && &usage;
+$opt_u && ($opt_a || $opt_c ) && &usage;
 
 sub usage() {
 	print "Client for reporting anticipated HPC load\n";
-	print "Usage: hpcd [-l|u] [-f <from_date>] [-t <to_date>]\n";
+	print "Usage: hpcd [-l|-u <userid>] [-ft] \n";
 	print "       hpcd -a\n";
+	print "       hpcd -c\n";
 	print "       hpcd -d <itemNo>\n";
 	print "       hpcd -h\n";
-	print "       a  Add new CPU demand reservation\n";
-	print "       d  Delete specified item number\n";
-	print "       f  Record display from date\n";
-	print "       h  Print this help messages\n";
-	print "       l  Long listing, show fall users\n";
-	print "       t  Record display to date\n";
-	print "       u  Include only the specified user\n";
+	print "\n";
+	print "       -a  Add a node reservation\n";
+	print "       -c  Copy a node reservation\n";
+	print "       -d  Delete a node reservation by item number\n";
+	print "       -f  Display reservation records starting from date\n";
+	print "          User will be prompted for date\n";
+	print "       -h  Print this help messages\n";
+	print "       -l  Long listing, show all users\n";
+	print "       -t  Display reservation records ending at this date\n";
+	print "          User will be prompted for date\n";
+	print "       -u  Include only the specified user\n";
+	print "\n";
+	print "       Dates can be entered as MM/DD/YY, YYYY/MM/DD, tomorrow\n";
+	print "       next month, etc...  Experiment.\n";
 	exit;
 }
 
@@ -75,6 +83,9 @@ if ( $opt_t ) { # Request to date
 if ( $opt_a ) {
 	# Add record
 	&addRecord();
+} elsif ( $opt_c ) {
+	# Copy record
+	&copyRecord();
 } elsif ( $opt_d ) {
 	# Delete record
 	&deleteRecord();
@@ -87,9 +98,9 @@ my $req;
 
 sub addRecord() {
 	print "Start Date? ";
-	my $x = time();
+	my $x = time() - 24*60*60;
 	my $start;
-	while (<>) {
+	while (<STDIN>) {
 		 my $date = ParseDate($_);
 		print "ooops - don't understand!\n" if not $date;
 		next if not $date;
@@ -104,7 +115,7 @@ sub addRecord() {
 	}
 	print "End Date? ";
 	my $end;
-	while (<>) {
+	while (<STDIN>) {
 		my $date = ParseDate($_);
 		print "ooops - don't understand!\n" if not $date;
 		next if not $date;
@@ -140,11 +151,20 @@ sub deleteRecord() {
 	}
 }
 
+sub copyRecord() {
+	if ( $opt_c gt 0 ) {
+		$req = "mode:copy;itemNo:$opt_c";
+	} else {
+		print "Invalid itemNo: $opt_c\n";
+		exit;
+	}
+}
+
 sub getFromDate() {
 	print "From date? ";
 	my $x = time();
 	my $from_date;
-	while (<>) {
+	while (<STDIN>) {
 		my $date = ParseDate($_);
 		print "ooops - don't understand!\n" if not $date;
 		next if not $date;
@@ -164,7 +184,7 @@ sub getToDate() {
 	print "To date? ";
 	my $x = time();
 	my $to_date;
-	while (<>) {
+	while (<STDIN>) {
 		my $date = ParseDate($_);
 		print "ooops - don't understand!\n" if not $date;
 		next if not $date;

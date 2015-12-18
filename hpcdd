@@ -10,8 +10,8 @@ use IO::Socket::INET;
 use Date::Manip qw(Delta_Format DateCalc UnixDate);
 use Proc::Daemon;
  
-my $debug = 0;		# change to 1 to enable debugging
-my $daemonize = 1;	# change to 0 to debug in non-daemon mode
+my $debug = 1;		# change to 1 to enable debugging
+my $daemonize = 0;	# change to 0 to debug in non-daemon mode
 
 my $pidFile = "/var/run/hpcdd.pid";
 my $daemon = Proc::Daemon->new(
@@ -137,6 +137,29 @@ while(1)
 		foreach my $record (@records) {
 			if ($record->{itemNo} eq $hash{'itemNo'}) {
 				next;
+			} else {
+				push @tmp, $record;
+			}
+		}
+		@records = @tmp;
+		
+		&updateDB();
+	}
+
+	# copy mode
+	if ($hash{'mode'} eq 'copy') {
+		my @tmp;
+		foreach my $record (@records) {
+			if ($record->{itemNo} eq $hash{'itemNo'}) {
+				push @tmp, $record;
+				my $rec = {};
+				$rec->{'itemNo'} = scalar(@tmp) + 1;
+				$rec->{'start'} = $record->{'start'};
+				$rec->{'end'} = $record->{'end'};
+				$rec->{'nodes'} = $record->{'nodes'};
+				$rec->{'user'} = $record->{'user'};
+				$rec->{'desc'} = $record->{'desc'};
+				push @tmp, $rec;
 			} else {
 				push @tmp, $record;
 			}
