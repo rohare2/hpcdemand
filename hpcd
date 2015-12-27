@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/perl -w
 # $Id: $
 # $Date: $
 # hpcd
@@ -7,12 +7,18 @@
 #
 use strict;
 use warnings;
-use IO::Socket::INET;
 use Date::Manip qw(ParseDate UnixDate);
 use Getopt::Std;
+use DBI;
 
-# auto-flush on socket
 $| = 1;
+
+my $database = 'hpcdemand';
+my $clusterSize = 100;
+
+# Connect to database
+my ($dbh,$sth,$rc);
+&db_connect();
 
 # set to 1 for debug mode
 my $debug = 0;
@@ -21,34 +27,33 @@ my $debug = 0;
 my $username = getpwuid ($<);
 
 # Command line arguments
-our ($opt_a, $opt_c, $opt_d, $opt_f, $opt_h, $opt_l, $opt_t, $opt_u);
+our ($opt_a, $opt_c, $opt_d, $opt_e, $opt_f, $opt_h, $opt_l, $opt_u);
 my $from_date = 0;
-my $to_date = 99999999;
 
-getopts("ac:d:fhltu:");
+getopts("ac:d:e:fhl:u:");
 $opt_h && &usage();
-$opt_l && ($opt_a || $opt_c || $opt_d || $opt_u) && &usage;
-$opt_d && ($opt_a || $opt_c || $opt_u) && &usage;
-$opt_u && ($opt_a || $opt_c ) && &usage;
+$opt_d && ($opt_a || $opt_c || $opt_e || $opt_u) && &usage;
+$opt_e && ($opt_a || $opt_c || $opt_d || $opt_u) && &usage;
+$opt_u && ($opt_a || $opt_c || $opt_d || $opt_e ) && &usage;
 
 sub usage() {
 	print "Client for reporting anticipated HPC load\n";
-	print "Usage: hpcd [-l|-u <userid>] [-ft] \n";
-	print "       hpcd -a\n";
-	print "       hpcd -c\n";
-	print "       hpcd -d <itemNo>\n";
+	print "Usage: hpcd [-u <userid>] [-f] [-l <rows>]\n";
+	print "       hpcd -a [-l <rows>]\n";
+	print "       hpcd -c [-l <rows>]\n";
+	print "       hpcd -d <itemNo> [-l <rows>]\n";
+	print "       hpcd -e <itemNo> [-l <rows>]\n";
 	print "       hpcd -h\n";
 	print "\n";
 	print "       -a  Add a node reservation\n";
 	print "       -c  Copy a node reservation\n";
 	print "       -d  Delete a node reservation by item number\n";
+	print "       -e  Edit a node reservation by item number\n";
 	print "       -f  Display reservation records starting from date\n";
-	print "          User will be prompted for date\n";
+	print "           User will be prompted for date\n";
 	print "       -h  Print this help messages\n";
-	print "       -l  Long listing, show all users\n";
-	print "       -t  Display reservation records ending at this date\n";
-	print "          User will be prompted for date\n";
-	print "       -u  Include only the specified user\n";
+	print "       -l  Limit display to <rows> number of rows\n";
+	print "       -u  Only display records for <userid> user\n";
 	print "\n";
 	print "       Dates can be entered as MM/DD/YY, YYYY/MM/DD, tomorrow\n";
 	print "       next month, etc...  Experiment.\n";
@@ -57,27 +62,19 @@ sub usage() {
 
 # who's records to list
 my $user = $username;
-if ( $opt_l ) {
-	$user = 'ALL';
-} elsif ( $opt_u ) {
+if ( $opt_u ) {
 	$user = $opt_u;
 }
 
-# create a connecting socket
-my $socket = new IO::Socket::INET (
-	PeerHost => '0.0.0.0',
-	PeerPort => '7777',
-	Proto => 'tcp',
-);
-die "cannot connect to the server $!\n" unless $socket;
-$debug && print "connected to the server\n";
+my $limit;
+if ($opt_l) {
+	$limit = $opt_l;
+} else {
+	$limit = 14;
+}
 
 if ( $opt_f ) { # Request from date
 	$from_date = &getFromDate();
-}
-
-if ( $opt_t ) { # Request to date
-	$to_date = &getToDate();
 }
 
 if ( $opt_a ) {
@@ -89,19 +86,25 @@ if ( $opt_a ) {
 } elsif ( $opt_d ) {
 	# Delete record
 	&deleteRecord();
+} elsif ( $opt_e ) {
+	# Edit record
+	&editRecord();
 } else {
 	# List records (default)
 	&listRecords();
 }
 
 my $req;
+exit(0); 
+
+#### Start of subroutines ####
 
 sub addRecord() {
 	print "Start Date? ";
 	my $x = time() - 24*60*60;
 	my $start;
 	while (<STDIN>) {
-		 my $date = ParseDate($_);
+		my $date = ParseDate($_);
 		print "ooops - don't understand!\n" if not $date;
 		next if not $date;
 		my ($y,$m,$d)=UnixDate($date, "%Y", "%m", "%d");
@@ -113,51 +116,157 @@ sub addRecord() {
 		$start = sprintf("%04d%02d%02d", $y,$m,$d);
 		last;
 	}
-	print "End Date? ";
-	my $end;
-	while (<STDIN>) {
-		my $date = ParseDate($_);
-		print "ooops - don't understand!\n" if not $date;
-		next if not $date;
-		my ($y,$m,$d)=UnixDate($date, "%Y", "%m", "%d");
-		my ($e)=UnixDate($date, "%s");
-		if ($e < $x) {
-			print "Can't accept $m/$d/$y end date must be in the future\n";
-			next;
-		}
-		$end = sprintf("%04d%02d%02d", $y,$m,$d);
-		last;
-	}
+
+	print "Run time in hrs [4]: ";
+	chomp (my $hrs = <STDIN>);
+	$hrs = 4 if $hrs eq '';
+
 	print "Nodes required [4]: ";
 	chomp (my $nodes = <STDIN>);
 	$nodes = 4 if $nodes eq '';
-	print "Work desctiption: ";
+
+	print "Work description: ";
 	chomp (my $desc = <STDIN>);
 
-	# data to send to server
-	$req = "mode:add;user:$username;start:$start;end:$end;nodes:$nodes;desc:$desc";
+	my $rc = $dbh->do("
+		INSERT INTO demand
+		SET start = '$start',
+		hrs = '$hrs',
+		nodes = '$nodes',
+		description = '$desc' "
+	);
+	listRecords();
 }
 
 sub listRecords() {
-	$req = "mode:list;user:$user;from:$from_date;to:$to_date";
+	my $idLabel = 'Id';
+	my $startLabel = 'Start';
+	my $hrsLabel = 'Hrs';
+	my $nodesLabel = 'Nodes';
+	my $userLabel = 'User';
+	my $descriptionLabel = 'Description';
+	my $loadLabel = 'Load';
+	my $sql;
+	if ($opt_u) {
+		$sql = "SELECT id,start,hrs,nodes,user,description,
+				(SELECT SUM(hrs*nodes/24/$clusterSize*100) FROM demand AS s
+				WHERE s.start = d.start)
+			  FROM demand AS d
+			  WHERE start >= DATE(NOW())
+			  AND start >= '$from_date'
+			  AND user = '$opt_u'
+			  ORDER BY start
+			  LIMIT $limit";
+	} else {
+		$sql = "SELECT id,start,hrs,nodes,user,description,
+				(SELECT SUM(hrs*nodes/24/$clusterSize*100) FROM demand AS s
+				WHERE s.start = d.start)
+			  FROM demand AS d
+			  WHERE start >= DATE(NOW())
+			  AND start >= '$from_date'
+			  ORDER BY start
+			  LIMIT $limit";
+	}
+	my $sth = $dbh->prepare($sql);
+	$sth->execute();
+	if ($sth->rows > 0) {
+		my @row;
+		print "+------+------------+-----+-------+------------------+----------------------+------+\n";
+		printf("|  %2s  | %-10s | %3s | %3s | %-16s | %-20s | %-4s |\n",
+			$idLabel,$startLabel,$hrsLabel,$nodesLabel,$userLabel,$descriptionLabel,$loadLabel);
+		print "+------+------------+-----+-------+------------------+----------------------+------+\n";
+		while (@row = $sth->fetchrow_array) {
+			printf("| %4s | %-10s | %3s | %5s | %-16s | %-20s | %3d%% |\n",
+				$row[0], $row[1], $row[2], $row[3], $row[4], $row[5], $row[6]);
+		}
+		print "+------+------------+-----+-------+------------------+----------------------+------+\n";
+	} elsif ($opt_u) {
+		print "No records for user $user\n";
+	} else {
+		print "No records\n";
+	}
 }
 
 sub deleteRecord() {
 	if ( $opt_d gt 0 ) {
-		$req = "mode:delete;itemNo:$opt_d";
+		my $sql = qq/DELETE FROM demand
+			WHERE id='$opt_d' /;
+
+		my $rc = $dbh->do($sql);
 	} else {
 		print "Invalid itemNo: $opt_d\n";
 		exit;
 	}
+	listRecords();
+}
+
+sub editRecord() {
+	if ( $opt_e gt 0 ) {
+		my ($id,$start,$hrs,$nodes,$desc);
+		my $sql = qq/SELECT * FROM demand WHERE id = '$opt_e'/;
+		my $hash_ref = $dbh->selectrow_hashref($sql);
+		print "Start Date [$hash_ref->{'start'}]: ";
+		my $x = time() - 24*60*60;
+		while (<STDIN>) {
+			chomp $_;
+			if ($_ eq '') {
+				$start = $hash_ref->{'start'};
+			} else {
+				my $date = ParseDate($_);
+				print "ooops - don't understand!\n" if not $date;
+				next if not $date;
+				my ($y,$m,$d)=UnixDate($date, "%Y", "%m", "%d");
+				my ($e)=UnixDate($date, "%s");
+				if ($e < $x) {
+					print "Can't accept $m/$d/$y start date must be in the future\n";
+					next;
+				}
+				$start = sprintf("%04d%02d%02d", $y,$m,$d);
+			}
+			last;
+		}
+
+		print "Run time in hrs [$hash_ref->{'hrs'}]: ";
+		chomp ($hrs = <STDIN>);
+		$hrs = $hash_ref->{'hrs'} if $hrs eq '';
+
+		print "Nodes required [$hash_ref->{'nodes'}]: ";
+		chomp ($nodes = <STDIN>);
+		$nodes = $hash_ref->{'nodes'} if $nodes eq '';
+
+		print "Work description [$hash_ref->{'description'}]: ";
+		chomp ($desc = <STDIN>);
+		$desc = $hash_ref->{'description'} if $desc eq '';
+
+		$sql = qq/UPDATE demand
+			SET start = '$start',
+			hrs = '$hrs',
+			nodes = '$nodes',
+			description = '$desc'
+			WHERE id='$opt_e' /;
+
+		my $rc = $dbh->do($sql);
+		listRecords();
+	} else {
+		print "Invalid itemNo: $opt_d\n";
+		exit;
+	}
+	listRecords();
 }
 
 sub copyRecord() {
 	if ( $opt_c gt 0 ) {
-		$req = "mode:copy;itemNo:$opt_c";
+		my $sql = qq/INSERT INTO demand
+			SELECT (SELECT MAX(id)+1 FROM demand AS a),start,hrs,nodes,user,description
+			FROM demand AS d
+			WHERE d.id='$opt_c' /;
+
+		my $rc = $dbh->do($sql);
 	} else {
 		print "Invalid itemNo: $opt_c\n";
 		exit;
 	}
+	listRecords();
 }
 
 sub getFromDate() {
@@ -180,38 +289,13 @@ sub getFromDate() {
 	return $from_date;
 }
 
-sub getToDate() {
-	print "To date? ";
-	my $x = time();
-	my $to_date;
-	while (<STDIN>) {
-		my $date = ParseDate($_);
-		print "ooops - don't understand!\n" if not $date;
-		next if not $date;
-		my ($y,$m,$d)=UnixDate($date, "%Y", "%m", "%d");
-		my ($e)=UnixDate($date, "%s");
-		if ($e < $x) {
-			print "Can't accept $m/$d/$y end date must be in the future\n";
-			next;
-		}
-		$to_date = sprintf("%04d%02d%02d", $y,$m,$d);
-		last;
-	}
-	return $to_date;
+# Connect to database
+sub db_connect() {
+	my($dsn, $user, $password);
+
+	$dsn = "DBI:mysql:database=$database;mysql_read_default_group=$database;"
+		. "mysql_read_default_file=~/.my.cnf";
+	
+	$dbh = DBI->connect($dsn, $user, $password);
 }
-
-# send data to server
-$socket->send($req);
-
-# notify server that request has been sent
-shutdown($socket, 1);
-
-# receive a response of up to 1024 characters from server
-while(my $response = <$socket>) {
-	#$socket->recv($response, 1024);
-	last if $response eq "END_OF_REQUEST";
-	print "$response";
-}
-
-$socket->close();
 

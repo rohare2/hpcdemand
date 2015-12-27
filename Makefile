@@ -4,8 +4,8 @@
 # High Performance Computer Demand (HPCD)
 #
 Name= hpcd
-Version= 1.0
-Release= 3
+Version= 2.1
+Release= 1
 Source= ${Name}-${Version}-${Release}.tgz
 BASE= $(shell pwd)
 
@@ -14,11 +14,8 @@ RPM_BUILD_ROOT= ${RPMBUILD}/BUILDROOT
 RPM_DIR= ${RPMBUILD}/RPMS/noarch
 
 BIN_DIR= /usr/bin
-SBIN_DIR= /usr/sbin
 
 BIN_FILES= hpcd
-
-SBIN_FILES= hpcdd
 
 REPOS= /var/www/html/software/jwics/redhat/5/noarch \
 	/var/www/html/software/jwics/redhat/6/noarch \
@@ -60,32 +57,21 @@ source:
 	tar czvf ${RPMBUILD}/SOURCES/${Source} --exclude=.git -C ${RPMBUILD}/SOURCES ${Name}
 	rm -fr ${RPMBUILD}/SOURCES/${Name}
 
-install: make_path bin sbin
+install: make_path bin
 
 localinstall: uid_chk
 	@for file in ${BIN_FILES}; do \
 		${INST} -p $$file ${BIN_DIR} -o root -g root -m 755; \
-	done
-	@for file in ${SBIN_FILES}; do \
-		${INST} -p $$file ${SBIN_DIR} -o root -g root -m 744; \
 	done
 	
 make_path:
 	@if [ ! -d ${RPM_BUILD_ROOT}/${BIN_DIR} ]; then \
 		mkdir -m 0755 -p ${RPM_BUILD_ROOT}/${BIN_DIR}; \
 	fi;
-	@if [ ! -d ${RPM_BUILD_ROOT}/${SBIN_DIR} ]; then \
-		mkdir -m 0755 -p ${RPM_BUILD_ROOT}/${SBIN_DIR}; \
-	fi;
 
 bin:
 	@for file in ${BIN_FILES}; do \
 		${INST} -p $$file ${RPM_BUILD_ROOT}/${BIN_DIR}; \
-	done;
-
-sbin:
-	@for file in ${SBIN_FILES}; do \
-		${INST} -p $$file ${RPM_BUILD_ROOT}/${SBIN_DIR}; \
 	done;
 
 webLoad:

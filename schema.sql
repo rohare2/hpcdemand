@@ -1,4 +1,4 @@
--- MySQL dump 10.13  Distrib 5.1.73, for redhat-linux-gnu (x86_64)
+-- MySQL dump 10.14  Distrib 5.5.44-MariaDB, for Linux (x86_64)
 --
 -- Host: www    Database: hpcdemand
 -- ------------------------------------------------------
@@ -31,14 +31,16 @@ DROP TABLE IF EXISTS `demand`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `demand` (
-  `start` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `id` mediumint(9) NOT NULL AUTO_INCREMENT,
+  `start` date NOT NULL,
   `hrs` int(4) NOT NULL DEFAULT '4',
-  `cpus` int(4) NOT NULL DEFAULT '4',
+  `nodes` int(4) NOT NULL DEFAULT '4',
   `user` varchar(20) DEFAULT NULL,
   `description` varchar(80) DEFAULT NULL,
+  PRIMARY KEY (`id`),
   KEY `start_ndx` (`start`),
   KEY `user_ndx` (`user`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=latin1;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
 /*!50003 SET @saved_cs_results     = @@character_set_results */ ;
@@ -67,4 +69,4 @@ DELIMITER ;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2015-12-20 20:19:24
+-- Dump completed on 2015-12-26 16:34:12

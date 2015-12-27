@@ -50,4 +50,3 @@ exit 0
 
 %files
 %attr(755, root, root) /usr/bin/hpcd
-%attr(744, root, root) /usr/sbin/hpcdd
