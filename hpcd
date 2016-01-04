@@ -56,7 +56,7 @@ sub usage() {
 	print "       -u  Only display records for <userid> user\n";
 	print "\n";
 	print "       Dates can be entered as MM/DD/YY, YYYY/MM/DD, tomorrow\n";
-	print "       next month, etc...  Experiment.\n";
+	print "       next month, etc...\n";
 	exit;
 }
 

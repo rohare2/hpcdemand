@@ -13,28 +13,9 @@ RPMBUILD= ${HOME}/rpmbuild
 RPM_BUILD_ROOT= ${RPMBUILD}/BUILDROOT
 RPM_DIR= ${RPMBUILD}/RPMS/noarch
 
-BIN_DIR= /usr/bin
+BIN_DIR= /usr/local/bin
 
 BIN_FILES= hpcd
-
-REPOS= /var/www/html/software/jwics/redhat/5/noarch \
-	/var/www/html/software/jwics/redhat/6/noarch \
-	/var/www/html/software/jwics/redhat/7/noarch \
-	/var/www/html/software/gs/redhat/5/noarch \
-	/var/www/html/software/gs/redhat/6/noarch \
-	/var/www/html/software/gs/redhat/7/noarch \
-	/var/www/html/software/hal/redhat/5/noarch \
-	/var/www/html/software/hal/redhat/6/noarch \
-	/var/www/html/software/hal/redhat/7/noarch \
-	/var/www/html/software/jwics/centos/5/noarch \
-	/var/www/html/software/jwics/centos/6/noarch \
-	/var/www/html/software/jwics/centos/7/noarch \
-	/var/www/html/software/gs/centos/5/noarch \
-	/var/www/html/software/gs/centos/6/noarch \
-	/var/www/html/software/gs/centos/7/noarch \
-	/var/www/html/software/hal/centos/5/noarch \
-	/var/www/html/software/hal/centos/6/noarch \
-	/var/www/html/software/hal/centos/7/noarch
 
 RPM_FILE= "${RPM_DIR}/${Name}-${Version}-${Release}.noarch.rpm" 
 
@@ -73,12 +54,6 @@ bin:
 	@for file in ${BIN_FILES}; do \
 		${INST} -p $$file ${RPM_BUILD_ROOT}/${BIN_DIR}; \
 	done;
-
-webLoad:
-	@for dest in ${REPOS}; do \
-		${INST} -p ${RPM_FILE} $$dest/ -m 644; \
-	done
-	
 
 uid_chk:
 	@if [ `id -u` != 0 ]; then echo You must become root first; exit 1; fi
