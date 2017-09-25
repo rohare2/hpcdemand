@@ -1,6 +1,6 @@
 # $Id: 5ba798a634daaae1bd14a89b91b216cef23ff5d5 $
 # $Date: $
-# Author: Rich O'Hare  <ohare2@llnl.gov>
+# Author: Rich O'Hare  <rohare2@gmail.com>
 #
 # Hight Performance Computer Demand (hpcd)
 #
@@ -16,10 +16,10 @@ Source: %{Source}
 License: GPLv2
 Group: Applications/System
 BuildArch: noarch
-URL: https://corbin.llnl.gov/
+URL: https://www.ohares.us/
 Distribution: RedHat/Centos 6
 Vendor: Rich O'Hare
-Packager: Rich O'Hare <ohare2@llnl.gov>
+Packager: Rich O'Hare <rohare2@gmail.com>
 Provides: hpcd 
 Requires: DBI
 Requires: Getopt::Std
